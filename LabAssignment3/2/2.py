@@ -5,9 +5,9 @@ from OpenGL.GL import *
 init = np.array([[1., 0., 0.],
 	   			 [0., 1., 0.],
 	   			 [0., 0., 1.]])
+tenDegree = np.radians(10)
 now = init
 
-tenDegree = np.radians(10)
 
 dic = {
 	glfw.KEY_W: np.array([[0.9, 0., 0.],
