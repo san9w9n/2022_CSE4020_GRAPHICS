@@ -3,8 +3,8 @@ from OpenGL.GL import *
 from OpenGL.GLU import *
 import numpy as np
 
-gCamAng = 0.
-gCamHeight = 1.
+gCamAng = np.radians(36)
+gCamHeight = 1.5
 
 gVertexArraySeparate = None
 
