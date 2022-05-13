@@ -10,12 +10,9 @@ from OpenGL.GLU import *
 
 dist = 5.
 azimuth = 45.
-OBJSIZE = .2
-GRIDFACTOR = 15.
+GRIDFACTOR = 5.
 elevation = 36.
 
-X = 0
-Y = 0
 mouseX = 0
 mouseY = 0
 
@@ -131,6 +128,10 @@ def drop_callback(window, paths):
     hierMode = False
     dirname = os.path.dirname(__file__)
     filename = os.path.join(dirname, paths[0])
+    if filename.find(".obj") == -1:
+        print("The file is not .obj file.")
+        nothing = True
+        return
     varr, v_varr, smooNarr, iarr, narr = getStuffsForDrawMesh(filename)
     nothing = False
 
@@ -336,41 +337,41 @@ def disableLight():
 ################################################
 #           DRAW GRID && AXIS && OBJECT
 
-def drawAxis(X):
+def drawAxis():
     glBegin(GL_LINES)
 
     glColor3ub(255, 0, 0)
-    glVertex3fv(np.array([-X*GRIDFACTOR, 0., 0.]))
-    glVertex3fv(np.array([X*GRIDFACTOR, 0., 0.]))
+    glVertex3fv(np.array([-GRIDFACTOR, 0., 0.]))
+    glVertex3fv(np.array([GRIDFACTOR, 0., 0.]))
     glColor3ub(0, 255, 0)
     glVertex3fv(np.array([0.,           0., 0.]))
-    glVertex3fv(np.array([0., X*GRIDFACTOR, 0.]))
+    glVertex3fv(np.array([0., GRIDFACTOR, 0.]))
     glColor3ub(0, 0, 255)
-    glVertex3fv(np.array([0., 0., -X*GRIDFACTOR]))
-    glVertex3fv(np.array([0., 0.,  X*GRIDFACTOR]))
+    glVertex3fv(np.array([0., 0., -GRIDFACTOR]))
+    glVertex3fv(np.array([0., 0.,  GRIDFACTOR]))
 
     glEnd()
 
 
-def drawGrid(X):
+def drawGrid():
     glBegin(GL_LINES)
     glColor3ub(255, 255, 255)
-    e = -X*GRIDFACTOR
+    e = -GRIDFACTOR
     arr = []
-    while (e <= X*GRIDFACTOR):
+    while (e <= GRIDFACTOR+.2):
         arr.append(e)
-        e += X
+        e += .2
     for p in arr:
-        glVertex3fv(np.array([p, 0., X*GRIDFACTOR]))
-        glVertex3fv(np.array([p, 0., -X*GRIDFACTOR]))
-        glVertex3fv(np.array([X*GRIDFACTOR, 0.,  p]))
-        glVertex3fv(np.array([-X*GRIDFACTOR, 0., p]))
+        glVertex3fv(np.array([p, 0., GRIDFACTOR]))
+        glVertex3fv(np.array([p, 0., -GRIDFACTOR]))
+        glVertex3fv(np.array([GRIDFACTOR, 0.,  p]))
+        glVertex3fv(np.array([-GRIDFACTOR, 0., p]))
     glEnd()
 
 
 def drawBackground():
-    drawAxis(OBJSIZE)
-    drawGrid(OBJSIZE)
+    drawAxis()
+    drawGrid()
 
 
 def drawMesh():
