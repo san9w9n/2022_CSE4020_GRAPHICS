@@ -135,10 +135,9 @@ def render(t):
   T1[0][3] = 1.
   R2[:3,:3] = eulerToRotMat(t, 0, t)
   J2 = R1 @ T1 @ R2
-#
+
   glPushMatrix()
   glMultMatrixf(J2.T)
-  glPushMatrix()
   glTranslatef(0.5,0,0)
   glScalef(0.5, 0.05, 0.05)
   drawCube_glDrawElements()
@@ -147,7 +146,7 @@ def render(t):
   glDisable(GL_LIGHTING)
   
   glPushMatrix()
-  glTranslatef(1, 0, 0)
+  glTranslatef(oldEndPoint[0], oldEndPoint[1], oldEndPoint[2])
   glScalef(.2,.2,.2)
   glBegin(GL_LINES)
   glColor3ub(255,255,0)
@@ -159,9 +158,7 @@ def render(t):
   glVertex3fv(np.array([0.,0.,1.]))
   glEnd()
   glPopMatrix()
-  glPopMatrix()
   
-
   currentEndPoint = J2 @ T1 @ np.array([0, 0, 0, 1]) 
   glBegin(GL_LINES)
   glColor3ub(255, 0, 0)
