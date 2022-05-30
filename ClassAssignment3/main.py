@@ -1,0 +1,544 @@
+import os
+import glfw
+import numpy as np
+from OpenGL.GL import *
+from OpenGL.GLU import *
+
+################################################
+#               GLOBAL VARIABLE
+
+dist = 5.
+azimuth = 45.
+GRIDFACTOR = 5.
+elevation = 36.
+
+mouseX = 0
+mouseY = 0
+
+currentObject = None
+animateMode = False
+boxMode = True
+orthMode = False
+lClick = False
+rClick = False
+nothing = True
+
+ref = np.array([0., 0., 0.])
+u = np.array([1., 0., 0.])
+v = np.array([0., 1., 0.])
+w = np.array([0., 0., 1.])
+up = np.array([0., 1., 0.])
+
+motion = []
+varr = np.array([
+            (-0.5773502691896258,0.5773502691896258,0.5773502691896258),
+            ( -0.02 ,  0 ,  0.02 ),
+            (0.8164965809277261,0.4082482904638631,0.4082482904638631),
+            (  0.02 , 0 ,  0.02 ),
+            (0.4082482904638631,-0.4082482904638631,0.8164965809277261),
+            (  0.02 ,  -1 ,  0.02 ),
+
+            (-0.4082482904638631,-0.8164965809277261,0.4082482904638631),
+            ( -0.02 ,  -1 ,  0.02 ),
+            (-0.4082482904638631,0.4082482904638631,-0.8164965809277261),
+            ( -0.02 , 0 ,  -0.02 ),
+            (0.4082482904638631,0.8164965809277261,-0.4082482904638631),
+            (  0.02 , 0 ,  -0.02 ),
+            (0.5773502691896258,-0.5773502691896258,-0.5773502691896258),
+            ( 0.02 ,  -1 , -0.02 ),
+            (-0.8164965809277261,-0.4082482904638631,-0.4082482904638631),
+            (  -0.02 ,  -1 , -0.02 ),
+        ], 'float32')
+iarr = np.array([
+        (0,2,1),
+        (0,3,2),
+        (4,5,6),
+        (4,6,7),
+        (0,1,5),
+        (0,5,4),
+        (3,6,2),
+        (3,7,6),
+        (1,2,6),
+        (1,6,5),
+        (0,7,3),
+        (0,4,7)
+    ], dtype = 'int32')
+
+################################################
+#                 DRAW BOX
+
+def drawCube():
+    glEnableClientState(GL_VERTEX_ARRAY)
+    glEnableClientState(GL_NORMAL_ARRAY)
+    glNormalPointer(GL_FLOAT, 6*iarr.itemsize, varr)
+    glVertexPointer(3, GL_FLOAT, 6*iarr.itemsize, ctypes.c_void_p(varr.ctypes.data + 3*iarr.itemsize))
+    glDrawElements(GL_TRIANGLES, iarr.size, GL_UNSIGNED_INT,iarr)
+    
+
+################################################
+#        DEFINITION OF CLASS FOR BVH
+
+class Joint:
+    def __init__(self, name, parent):
+        self.name = name
+        self.parent = parent
+        self.offset = np.zeros(3)
+        self.orderOfChannel = []
+        self.indexOfChannel = []
+        self.children = []
+
+    def appendChild(self, child):
+        self.children.append(child)
+    
+    def drawOne(self):
+        glTranslatef(self.offset[0], self.offset[1], self.offset[2]) 
+        if(boxMode):
+            if self.parent:
+                x, y, z = self.offset[0], self.offset[1], self.offset[2] 
+                offset = ((x*x) + (y*y) + (z*z)) ** 0.5
+                degreeVector = np.cross(getUnit(self.offset), np.array([0, 1, 0]))
+                x, y, z = degreeVector[0], degreeVector[1], degreeVector[2]
+                innerDegree = ((x*x) + (y*y) + (z*z)) ** 0.5
+                degree = np.rad2deg(np.arcsin(innerDegree))
+                if np.dot(self.offset, np.array([0, 1, 0])) > 0:
+                    degree = 180 - degree
+                glPushMatrix()
+                glRotatef(degree, degreeVector[0], degreeVector[1], degreeVector[2])
+                glScalef(1, -offset, 1)
+                drawCube()
+                glPopMatrix()
+        elif self.parent:
+            glBegin(GL_LINES)
+            glVertex3fv(-self.offset)
+            glVertex3fv(np.array([0.,0.,0.]))
+            glEnd()
+
+        
+    def tPose(self):
+        glPushMatrix()
+        self.drawOne()
+        for child in self.children:
+            child.tPose()
+        glPopMatrix()
+
+    def animation(self, i):
+        glPushMatrix()
+        self.drawOne()
+        for j, typeOf in zip(self.indexOfChannel, self.orderOfChannel):
+            upperType = typeOf.upper()
+            m = motion[i][j]
+            if upperType == 'XROTATION':
+                glRotatef(m, 1, 0, 0)
+            elif upperType == 'YROTATION':
+                glRotatef(m, 0, 1, 0)
+            elif upperType == 'ZROTATION':
+                glRotatef(m, 0, 0, 1)
+            elif upperType == 'XPOSITION':
+                glTranslatef(m, 0, 0)
+            elif upperType == 'YPOSITION':
+                glTranslatef(0, m, 0)
+            elif upperType == 'ZPOSITION':
+                glTranslatef(0, 0, m) 
+        for child in self.children:
+            child.animation(i)
+        glPopMatrix()
+
+class Bvh:
+    def __init__(self, filename, bvhPlainTexts):
+        self.filename = filename
+        self.joints = {}
+        self.root = None
+        self.frames = 0
+        self.fps = 0
+
+        self.parseBvhPlainTexts(bvhPlainTexts)
+    
+    def parseBvhPlainTexts(self, bvhPlainTexts):
+        motionIndex = bvhPlainTexts.upper().find("MOTION")
+        if motionIndex < 0:
+            raise Exception("No Motion section.")
+        motionString = bvhPlainTexts[motionIndex:motionIndex+6]
+        hierPlainTexts, motionPlainTexts = bvhPlainTexts.split(motionString)
+        self.parseHierPlainTexts(hierPlainTexts)
+        self.parseMotionPlainTexts(motionPlainTexts)
+            
+    def parseHierPlainTexts(self, hierPlainTexts):
+        linesOfHierPlainTexts = hierPlainTexts.split('\n')
+        stackOfJoints = []
+        cidx = 0
+        for line in linesOfHierPlainTexts:
+            words = line.strip().split(" ")
+            lengthOfWords = len(words)
+            if not words or lengthOfWords == 0:
+                continue
+            opcode = words[0].upper()
+            if opcode == "ROOT":
+                nameOfJoint = words[1]
+                joint = Joint(nameOfJoint, None)
+                self.root = joint
+                self.joints[nameOfJoint] = joint
+                stackOfJoints.append(joint)
+            elif opcode == "JOINT":
+                nameOfJoint = words[1]
+                if (len(stackOfJoints) == 0):
+                    raise Exception("Stack of joints is empty. (JOINT)")
+                parent = stackOfJoints[-1]
+                joint = Joint(nameOfJoint, parent)
+                self.joints[nameOfJoint] = joint
+                parent.appendChild(joint)
+                stackOfJoints.append(joint)
+            elif opcode == "CHANNELS":
+                if (len(stackOfJoints) == 0):
+                    raise Exception("Stack of joints is empty. (CHANNELS)")
+                for e in words[2:]:
+                    stackOfJoints[-1].indexOfChannel.append(cidx)
+                    stackOfJoints[-1].orderOfChannel.append(e)
+                    cidx += 1
+            elif opcode == "OFFSET":
+                if (len(stackOfJoints) == 0):
+                    raise Exception("Stack of joints is empty. (OFFSET)")
+                for i, e in enumerate(words[1:], start=1):
+                    offset = float(e)
+                    stackOfJoints[-1].offset[i - 1] = offset
+            elif opcode == "END":
+                if len(stackOfJoints) == 0:
+                    raise Exception("Stack of joints is empty. (END)")
+                nameOfLastJoint = f"End Of {stackOfJoints[-1].name}"
+                lastJoint = Joint(nameOfLastJoint, stackOfJoints[-1])
+                self.joints[nameOfLastJoint] = lastJoint
+                stackOfJoints[-1].appendChild(lastJoint)
+                stackOfJoints.append(lastJoint)
+            elif opcode == "}":
+                if len(stackOfJoints) == 0:
+                    raise Exception("Stack of joints is empty. (POP)")
+                stackOfJoints.pop()
+   
+    def parseMotionPlainTexts(self, motionPlainTexts):
+        global motion
+        motion = []
+        lines = motionPlainTexts.split("\n")
+        for line in lines:
+            if len(line) == 0:
+                continue
+            words = line.replace("\n", "").strip().split()
+            upperLine = line.upper()
+            if upperLine.find("TIME") >= 0 and upperLine.find("FRAME") >= 0:
+                self.fps = round(1 / float(words[2]))
+                continue
+            if upperLine.find("FRAMES") >= 0:
+                self.frames = int(words[1])
+                continue
+            listOfFloats = []
+            for word in words:
+                try:
+                    floatWord = float(word)
+                    listOfFloats.append(floatWord)
+                except:
+                    pass
+            motion.append(listOfFloats)
+
+    def drawTPose(self):
+        glPushMatrix()
+        self.root.tPose()
+        glPopMatrix()
+        
+    def drawAnimation(self):
+        glPushMatrix()
+        self.root.animation(int((glfw.get_time() - timeOfPressSpace) * self.fps) % self.frames)
+        glPopMatrix()
+    
+    def __str__(self):
+        filename = f"File name : {self.filename}\n"
+        numOfFrames = f"Number of frames : {self.frames}\n"
+        fps = f"FPS : {self.fps}\n"
+        numOfJoints = f"Number of joints : {len(self.joints.keys())}\n"
+        listOfAllJoints = "List of all joint names :\n"
+        for name in self.joints.keys():
+            listOfAllJoints += f"\t{name}\n"
+        return filename + numOfFrames + fps + numOfJoints + listOfAllJoints
+
+################################################
+#           CONVINIENT FUNCTIONS
+
+
+def cosAzim():
+    return np.cos(np.radians(azimuth))
+
+
+def sinAzim():
+    return np.sin(np.radians(azimuth))
+
+
+def cosElev():
+    return np.cos(np.radians(elevation))
+
+
+def sinElev():
+    return np.sin(np.radians(elevation))
+
+
+def getUnit(num):
+    denominator = np.sqrt(np.dot(num, num))
+    if denominator == 0:
+        return np.array([0, 0, 0])
+    return num / denominator
+
+
+################################################
+#          EVENT CALLBACK FUNCTION
+
+def key_callback(window, key, scancode, action, mods):
+    global orthMode, boxMode, timeOfPressSpace, animateMode
+    if action != glfw.PRESS:
+        return
+    if key == glfw.KEY_V:
+        orthMode = not orthMode
+    if key == glfw.KEY_1:
+        boxMode = False
+    if key == glfw.KEY_2:
+        boxMode = True
+    if key == glfw.KEY_SPACE:
+        timeOfPressSpace = glfw.get_time()
+        animateMode = not animateMode
+
+
+
+def button_callback(window, button, action, mod):
+    global lClick, rClick, mouseX, mouseY
+    if button == glfw.MOUSE_BUTTON_LEFT:
+        mouseX, mouseY = glfw.get_cursor_pos(window)
+        lClick = (action == glfw.PRESS)
+        rClick = False
+    elif button == glfw.MOUSE_BUTTON_RIGHT:
+        mouseX, mouseY = glfw.get_cursor_pos(window)
+        rClick = (action == glfw.PRESS)
+        lClick = False
+    else:
+        rClick = lClick = False
+
+
+def cursor_callback(window, x, y):
+    global ref, u, v, mouseX, mouseY, elevation, azimuth, up
+    subX = mouseX - x
+    subY = y - mouseY
+    if (lClick):
+        azimuth += subX*0.1
+        elevation += subY*0.1
+        if cosElev() < 0:
+            up[1] = -1
+        else:
+            up[1] = 1
+    elif (rClick):
+        ref += (u * .01 * subX) + (v * .01 * subY)
+    mouseX, mouseY = x, y
+
+
+def scroll_callback(window, _, y):
+    global dist
+    if y:
+        if dist-y <= 0:
+            dist = 0
+        else:
+            dist -= y
+
+
+def drop_callback(window, paths):
+    global nothing, animateMode, currentObject
+    if (len(paths) == 0):
+        return
+    dirname = os.path.dirname(__file__)
+    filename = os.path.join(dirname, paths[0])
+    if filename.find(".bvh") == -1:
+        print("The file is not .bvh file.")
+        nothing = True
+        return
+    with open(filename, 'r') as f:
+        currentObject = Bvh(filename, f.read())
+        print(currentObject)
+        nothing = False
+        animateMode = False
+
+
+################################################
+#          SETTNGS FOR RENDERING
+
+def setInitialBit():
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+    glEnable(GL_DEPTH_TEST)
+
+def getMyLookAt():
+    global u, v, w
+    eye = np.array([ref[0] + dist * cosElev() * sinAzim(),
+                    ref[1] + dist * sinElev(),
+                    ref[2] + dist * cosElev() * cosAzim()])
+
+    w = getUnit(eye - ref)
+    u = getUnit(np.cross(up, w))
+    v = getUnit(np.cross(w, u))
+    eyeU = -np.dot(u, eye)
+    eyeV = -np.dot(v, eye)
+    eyeW = -np.dot(w, eye)
+    Mv = np.array([[u[0], v[0], w[0], 0],
+                   [u[1], v[1], w[1], 0],
+                   [u[2], v[2], w[2], 0],
+                   [eyeU, eyeV, eyeW, 1]])
+    return Mv
+
+
+def setViewMode():
+    glMatrixMode(GL_MODELVIEW)
+    glLoadIdentity()
+    glMultMatrixf(getMyLookAt())
+
+
+def setProjectionMode():
+    glMatrixMode(GL_PROJECTION)
+    glLoadIdentity()
+    if (orthMode):
+        glOrtho(-10, 10, -10, 10, -10, 10)
+    else:
+        gluPerspective(45, 1, 3, 20)
+
+
+################################################
+#              CONTROL LIGHTS
+
+def enableLight():
+    glEnable(GL_LIGHTING)
+    glEnable(GL_LIGHT0)
+    glEnable(GL_LIGHT1)
+    glEnable(GL_LIGHT2)
+    glEnable(GL_NORMALIZE)
+
+
+def setLight():
+    glPushMatrix()
+    lightColor = (1., 0., 0., 1.)
+    ambientLightColor = (.1, .1, .1, 1.)
+    lightPos = (3., 4., 5., 1.)
+    glLightfv(GL_LIGHT0, GL_POSITION, lightPos)
+    glLightfv(GL_LIGHT0, GL_DIFFUSE, lightColor)
+    glLightfv(GL_LIGHT0, GL_SPECULAR, lightColor)
+    glLightfv(GL_LIGHT0, GL_AMBIENT, ambientLightColor)
+    glPopMatrix()
+
+    glPushMatrix()
+    lightColor = (0., 1., 0., 1.)
+    ambientLightColor = (.1, .1, .1, 1.)
+    lightPos = (-2., 3., 1., 1.)
+    glLightfv(GL_LIGHT1, GL_POSITION, lightPos)
+    glLightfv(GL_LIGHT1, GL_DIFFUSE, lightColor)
+    glLightfv(GL_LIGHT1, GL_SPECULAR, lightColor)
+    glLightfv(GL_LIGHT1, GL_AMBIENT, ambientLightColor)
+    glPopMatrix()
+
+    glPushMatrix()
+    lightColor = (0., 0., 1., 1.)
+    ambientLightColor = (.1, .1, .1, 1.)
+    lightPos = (-2., -3., -5., 1.)
+    glLightfv(GL_LIGHT2, GL_POSITION, lightPos)
+    glLightfv(GL_LIGHT2, GL_DIFFUSE, lightColor)
+    glLightfv(GL_LIGHT2, GL_SPECULAR, lightColor)
+    glLightfv(GL_LIGHT2, GL_AMBIENT, ambientLightColor)
+    glPopMatrix()
+
+def setObjectColor():
+    objectColor = (1,1,1,1.)
+    specularObjectColor = (1.,1.,1.,1.)
+    glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, objectColor)
+    glMaterialfv(GL_FRONT, GL_SHININESS, 10)
+    glMaterialfv(GL_FRONT, GL_SPECULAR, specularObjectColor)
+
+def disableLight():
+    glDisable(GL_LIGHTING)
+
+
+################################################
+#           DRAW GRID && AXIS && OBJECT
+
+def drawAxis():
+    glBegin(GL_LINES)
+
+    glColor3ub(255, 0, 0)
+    glVertex3fv(np.array([-GRIDFACTOR, 0., 0.]))
+    glVertex3fv(np.array([GRIDFACTOR, 0., 0.]))
+    glColor3ub(0, 255, 0)
+    glVertex3fv(np.array([0.,           0., 0.]))
+    glVertex3fv(np.array([0., GRIDFACTOR, 0.]))
+    glColor3ub(0, 0, 255)
+    glVertex3fv(np.array([0., 0., -GRIDFACTOR]))
+    glVertex3fv(np.array([0., 0.,  GRIDFACTOR]))
+
+    glEnd()
+
+
+def drawGrid():
+    glBegin(GL_LINES)
+    glColor3ub(255, 255, 255)
+    e = -GRIDFACTOR
+    arr = []
+    while (e <= GRIDFACTOR+.2):
+        arr.append(e)
+        e += .2
+    for p in arr:
+        glVertex3fv(np.array([p, 0., GRIDFACTOR]))
+        glVertex3fv(np.array([p, 0., -GRIDFACTOR]))
+        glVertex3fv(np.array([GRIDFACTOR, 0.,  p]))
+        glVertex3fv(np.array([-GRIDFACTOR, 0., p]))
+    glEnd()
+
+def drawBackGround():
+    drawAxis()
+    drawGrid()
+
+################################################
+#                RENDERING
+
+
+def render():
+    setInitialBit()
+    setProjectionMode()
+    setViewMode()
+    drawBackGround()
+
+    enableLight()
+    setLight()
+    setObjectColor()
+    if not boxMode:
+        disableLight()
+    
+    if not nothing and currentObject:
+        if animateMode:
+            currentObject.drawAnimation()
+        else:
+            currentObject.drawTPose()
+    disableLight()
+
+
+################################################
+#                 MAIN
+
+def main():
+    if not glfw.init():
+        return
+    window = glfw.create_window(800, 800, "ClassAssignment3", None, None)
+    if not window:
+        glfw.terminate()
+        return
+    glfw.set_key_callback(window, key_callback)
+    glfw.set_mouse_button_callback(window, button_callback)
+    glfw.set_cursor_pos_callback(window, cursor_callback)
+    glfw.set_scroll_callback(window, scroll_callback)
+    glfw.set_drop_callback(window, drop_callback)
+
+    glfw.make_context_current(window)
+    glfw.swap_interval(1)
+    while not glfw.window_should_close(window):
+        glfw.poll_events()
+        render()
+        glfw.swap_buffers(window)
+    glfw.terminate()
+
+
+if __name__ == "__main__":
+    main()
