@@ -373,7 +373,7 @@ def drawObjMesh(idx):
     glDrawArrays(GL_TRIANGLES, 0, int(varrList[idx].size / 3))
 
 def openObjFiles():
-    global canDrawObj, varrList, narrList
+    global canDrawObj, varrList, narrList, objMode
     varrList, narrList = [], []
     dirpath = os.path.dirname(__file__)
     for name in objFileNames:
@@ -383,6 +383,7 @@ def openObjFiles():
             canDrawObj = False
             break
         canDrawObj = True
+        objMode = True
 
 ################################################
 #           CONVINIENT FUNCTIONS
@@ -477,7 +478,7 @@ def scroll_callback(window, _, y):
 
 
 def drop_callback(window, paths):
-    global nothing, animateMode, objFileNames, currentObject
+    global nothing, animateMode, objFileNames, currentObject, downloadedBvhFile, canDrawObj, objMode
     if (len(paths) == 0):
         return
     dirname = os.path.dirname(__file__)
@@ -485,7 +486,10 @@ def drop_callback(window, paths):
     if filename.find(".bvh") == -1:
         print("The file is not .bvh file.")
         nothing = True
+        canDrawObj = False
+        objMode = False
         return
+    downloadedBvhFile = filename.find("sample") < 0
     with open(filename, 'r') as f:
         objFileNames = []
         currentObject = Bvh(filename, f.read())
@@ -644,7 +648,7 @@ def render():
     enableLight()
     setLight()
     setObjectColor()
-    if not boxMode and not canDrawObj:
+    if not boxMode and not objMode:
         disableLight()
     
     if not nothing and currentObject:
