@@ -58,19 +58,19 @@ boxVarr = np.array([
             (  -0.02 ,  -1 , -0.02 ),
         ], 'float32')
 boxIarr = np.array([
-        (0,2,1),
-        (0,3,2),
-        (4,5,6),
-        (4,6,7),
-        (0,1,5),
-        (0,5,4),
-        (3,6,2),
-        (3,7,6),
-        (1,2,6),
-        (1,6,5),
-        (0,7,3),
-        (0,4,7)
-    ], dtype = 'int32')
+            (0,2,1),
+            (0,3,2),
+            (4,5,6),
+            (4,6,7),
+            (0,1,5),
+            (0,5,4),
+            (3,6,2),
+            (3,7,6),
+            (1,2,6),
+            (1,6,5),
+            (0,7,3),
+            (0,4,7)
+        ], dtype = 'int32')
 
 def drawCube():
     glEnableClientState(GL_VERTEX_ARRAY)
@@ -419,9 +419,9 @@ def key_callback(window, key, scancode, action, mods):
         return
     if key == glfw.KEY_V:
         orthMode = not orthMode
-    if key == glfw.KEY_1:
+    if key == glfw.KEY_1 and not objMode:
         boxMode = False
-    if key == glfw.KEY_2:
+    if key == glfw.KEY_2 and not objMode:
         boxMode = True
     if key == glfw.KEY_SPACE:
         timeOfPressSpace = glfw.get_time()
