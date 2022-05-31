@@ -22,7 +22,9 @@ orthMode = False
 lClick = False
 rClick = False
 nothing = True
-downloadedBvhFile = True
+downloadedBvhFile = False
+isObjExist = False
+objFileNames = []
 
 ref = np.array([0., 0., 0.])
 u = np.array([1., 0., 0.])
@@ -31,7 +33,11 @@ w = np.array([0., 0., 1.])
 up = np.array([0., 1., 0.])
 
 motion = []
-varr = np.array([
+
+################################################
+#                 DRAW BOX
+
+boxVarr = np.array([
             (-0.5773502691896258,0.5773502691896258,0.5773502691896258),
             ( -0.02 ,  0 ,  0.02 ),
             (0.8164965809277261,0.4082482904638631,0.4082482904638631),
@@ -50,7 +56,7 @@ varr = np.array([
             (-0.8164965809277261,-0.4082482904638631,-0.4082482904638631),
             (  -0.02 ,  -1 , -0.02 ),
         ], 'float32')
-iarr = np.array([
+boxIarr = np.array([
         (0,2,1),
         (0,3,2),
         (4,5,6),
@@ -65,15 +71,12 @@ iarr = np.array([
         (0,4,7)
     ], dtype = 'int32')
 
-################################################
-#                 DRAW BOX
-
 def drawCube():
     glEnableClientState(GL_VERTEX_ARRAY)
     glEnableClientState(GL_NORMAL_ARRAY)
-    glNormalPointer(GL_FLOAT, 6*iarr.itemsize, varr)
-    glVertexPointer(3, GL_FLOAT, 6*iarr.itemsize, ctypes.c_void_p(varr.ctypes.data + 3*iarr.itemsize))
-    glDrawElements(GL_TRIANGLES, iarr.size, GL_UNSIGNED_INT,iarr)
+    glNormalPointer(GL_FLOAT, 6*boxIarr.itemsize, boxVarr)
+    glVertexPointer(3, GL_FLOAT, 6*boxIarr.itemsize, ctypes.c_void_p(boxVarr.ctypes.data + 3*boxIarr.itemsize))
+    glDrawElements(GL_TRIANGLES, boxIarr.size, GL_UNSIGNED_INT, boxIarr)
     
 
 ################################################
@@ -109,7 +112,14 @@ class Node:
                     glScalef(30, -offset, 30)
                 else:
                     glScalef(1, -offset, 1)
-                drawCube()
+                if isObjExist:
+                    objname = self.name.lower().replace(" ", "") + ".obj"
+                    for idx, name in enumerate(objFileNames):
+                        if (name == objname):
+                            drawObjMesh(idx)
+                            break
+                else:
+                    drawCube()
                 glPopMatrix()
         elif self.parent:
             glBegin(GL_LINES)
@@ -249,10 +259,11 @@ class Bvh:
         glPopMatrix()
         
     def drawAnimation(self):
+        idx = int((glfw.get_time() - timeOfPressSpace) * self.fps) % self.frames
         glPushMatrix()
         if downloadedBvhFile:
             glScalef(.03, .03, .03)
-        self.root.animation(int((glfw.get_time() - timeOfPressSpace) * self.fps) % self.frames)
+        self.root.animation(idx)
         glPopMatrix()
     
     def __str__(self):
@@ -264,6 +275,110 @@ class Bvh:
         for name in self.nodes.keys():
             listOfAllNodes += f"\t{name}\n"
         return filename + numOfFrames + fps + numOfNodes + listOfAllNodes
+
+################################################
+#              DRAW OBJ FILE
+
+
+varrList, narrList = [], []
+offsetList = np.empty((0, 3), np.float32)
+
+def getStuffsForDrawMesh(path):
+    global varrList, narrList
+    threeVertexCnt = 0
+    fourVertexCnt = 0
+    moreVertexCnt = 0
+
+    iarr = np.empty((0, 3), dtype=np.int32)
+    narr = np.empty((0, 3), dtype=np.float32)
+    v_varr = np.empty((0, 3), dtype=np.float32)
+    v_narr = np.empty((0, 3), dtype=np.float32)
+
+    with open(path, 'r') as f:
+        for line in f:
+            line = line.replace("\n", "")
+            elements = line.strip().split()
+            if (not elements or len(elements) == 0):
+                continue
+
+            if elements[0] == "v":
+                vertex = np.array([[float(elements[1]), float(
+                    elements[2]), float(elements[3])]], dtype=np.float32)
+                v_varr = np.append(v_varr, vertex, axis=0)
+                continue
+
+            if elements[0] == "vn":
+                vertex = np.array([getUnit(np.array([float(elements[1]), float(
+                    elements[2]), float(elements[3])], dtype=np.float32))], dtype=np.float32)
+                v_narr = np.append(v_narr, vertex, axis=0)
+                continue
+
+            if elements[0] == "f":
+                length = len(elements)
+                if (length == 4):
+                    threeVertexCnt += 1
+                elif (length == 5):
+                    fourVertexCnt += 1
+                elif (length > 5):
+                    moreVertexCnt += 1
+
+                vertexIdxes = np.empty((0, 3), dtype=int)
+                normals = np.empty((0, 3), dtype=np.float32)
+                for e in elements[1:]:
+                    faceInfo = e.split('/')
+                    if len(faceInfo) >= 1:
+                        vertexIdx = int(faceInfo[0]) - 1
+                        vertexIdxes = np.append(vertexIdxes, vertexIdx)
+                    if len(faceInfo) == 2:
+                        normalIdx = int(
+                            faceInfo[1]) - 1 if faceInfo[1] != "" else 0
+                        normals = np.append(
+                            normals, [v_narr[normalIdx]], axis=0)
+                    if len(faceInfo) >= 3:
+                        normalIdx = int(
+                            faceInfo[2]) - 1 if faceInfo[2] != "" else 0
+                        normals = np.append(
+                            normals, [v_narr[normalIdx]], axis=0)
+                idxLength = len(vertexIdxes)
+                if idxLength == 3:
+                    iarr = np.append(iarr, np.array([vertexIdxes]), axis=0)
+                    for normal in normals:
+                        narr = np.append(narr, np.array([normal]), axis=0)
+                elif idxLength > 3:
+                    for i in range(2, idxLength):
+                        idx = np.array(
+                            [vertexIdxes[0], vertexIdxes[i-1], vertexIdxes[i]])
+                        iarr = np.append(iarr, np.array([idx]), axis=0)
+                        normal = np.array(
+                            [np.array(normals[0]), np.array(normals[i-1]), np.array(normals[i])])
+                        narr = np.append(narr, normal, axis=0)
+        varr = np.empty((0, 3), dtype=np.float32)
+        for idx in iarr:
+            for i in idx:
+                varr = np.append(varr, np.array([v_varr[i]]), axis=0)
+        varrList.append(varr)
+        narrList.append(narr)
+
+
+def drawObjMesh(idx):
+    glScalef(0.3, 0.3, 0.3)
+    glEnableClientState(GL_VERTEX_ARRAY)
+    glEnableClientState(GL_NORMAL_ARRAY)
+    glNormalPointer(GL_FLOAT, 3 * narrList[idx].itemsize, narrList[idx])
+    glVertexPointer(3, GL_FLOAT, 3 * varrList[idx].itemsize, varrList[idx])
+    glDrawArrays(GL_TRIANGLES, 0, int(varrList[idx].size / 3))
+
+def openObjFiles():
+    global isObjExist, varrList, narrList
+    varrList, narrList = [], []
+    dirpath = os.path.dirname(__file__)
+    for name in objFileNames:
+        path = os.path.join(dirpath, name)
+        try: getStuffsForDrawMesh(path)
+        except:
+            isObjExist = False
+            break
+        isObjExist = True
 
 ################################################
 #           CONVINIENT FUNCTIONS
@@ -353,7 +468,7 @@ def scroll_callback(window, _, y):
 
 
 def drop_callback(window, paths):
-    global nothing, animateMode, currentObject
+    global nothing, animateMode, objFileNames, currentObject
     if (len(paths) == 0):
         return
     dirname = os.path.dirname(__file__)
@@ -363,8 +478,12 @@ def drop_callback(window, paths):
         nothing = True
         return
     with open(filename, 'r') as f:
+        objFileNames = []
         currentObject = Bvh(filename, f.read())
+        for name in currentObject.nodes.keys():
+            objFileNames.append(f"{name.lower().replace(' ', '')}.obj")
         print(currentObject)
+        openObjFiles()
         nothing = False
         animateMode = False
 
@@ -514,7 +633,7 @@ def render():
     enableLight()
     setLight()
     setObjectColor()
-    if not boxMode:
+    if not boxMode and not isObjExist:
         disableLight()
     
     if not nothing and currentObject:
