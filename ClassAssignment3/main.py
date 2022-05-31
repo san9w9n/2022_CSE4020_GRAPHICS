@@ -23,7 +23,8 @@ lClick = False
 rClick = False
 nothing = True
 downloadedBvhFile = False
-isObjExist = False
+canDrawObj = False
+objMode = False
 objFileNames = []
 
 ref = np.array([0., 0., 0.])
@@ -96,7 +97,7 @@ class Node:
     
     def drawOne(self):
         glTranslatef(self.offset[0], self.offset[1], self.offset[2]) 
-        if(boxMode):
+        if boxMode or (canDrawObj and objMode):
             if self.parent:
                 x, y, z = self.offset[0], self.offset[1], self.offset[2] 
                 offset = getRootOfSumOfSquare(x, y, z)
@@ -112,7 +113,7 @@ class Node:
                     glScalef(30, -offset, 30)
                 else:
                     glScalef(1, -offset, 1)
-                if isObjExist:
+                if canDrawObj and objMode:
                     objname = self.name.lower().replace(" ", "") + ".obj"
                     for idx, name in enumerate(objFileNames):
                         if (name == objname):
@@ -369,16 +370,16 @@ def drawObjMesh(idx):
     glDrawArrays(GL_TRIANGLES, 0, int(varrList[idx].size / 3))
 
 def openObjFiles():
-    global isObjExist, varrList, narrList
+    global canDrawObj, varrList, narrList
     varrList, narrList = [], []
     dirpath = os.path.dirname(__file__)
     for name in objFileNames:
         path = os.path.join(dirpath, name)
         try: getStuffsForDrawMesh(path)
         except:
-            isObjExist = False
+            canDrawObj = False
             break
-        isObjExist = True
+        canDrawObj = True
 
 ################################################
 #           CONVINIENT FUNCTIONS
@@ -413,7 +414,7 @@ def getRootOfSumOfSquare(x, y, z):
 #          EVENT CALLBACK FUNCTION
 
 def key_callback(window, key, scancode, action, mods):
-    global orthMode, boxMode, timeOfPressSpace, animateMode
+    global orthMode, boxMode, timeOfPressSpace, animateMode, objMode
     if action != glfw.PRESS:
         return
     if key == glfw.KEY_V:
@@ -425,6 +426,11 @@ def key_callback(window, key, scancode, action, mods):
     if key == glfw.KEY_SPACE:
         timeOfPressSpace = glfw.get_time()
         animateMode = not animateMode
+    if key == glfw.KEY_O:
+        if canDrawObj:
+            objMode = not objMode
+        else:
+            objMode = False
 
 
 
@@ -633,7 +639,7 @@ def render():
     enableLight()
     setLight()
     setObjectColor()
-    if not boxMode and not isObjExist:
+    if not boxMode and not canDrawObj:
         disableLight()
     
     if not nothing and currentObject:
