@@ -22,6 +22,7 @@ orthMode = False
 lClick = False
 rClick = False
 nothing = True
+downloadedBvhFile = True
 
 ref = np.array([0., 0., 0.])
 u = np.array([1., 0., 0.])
@@ -78,7 +79,7 @@ def drawCube():
 ################################################
 #        DEFINITION OF CLASS FOR BVH
 
-class Joint:
+class Node:
     def __init__(self, name, parent):
         self.name = name
         self.parent = parent
@@ -95,16 +96,19 @@ class Joint:
         if(boxMode):
             if self.parent:
                 x, y, z = self.offset[0], self.offset[1], self.offset[2] 
-                offset = ((x*x) + (y*y) + (z*z)) ** 0.5
+                offset = getRootOfSumOfSquare(x, y, z)
                 degreeVector = np.cross(getUnit(self.offset), np.array([0, 1, 0]))
                 x, y, z = degreeVector[0], degreeVector[1], degreeVector[2]
-                innerDegree = ((x*x) + (y*y) + (z*z)) ** 0.5
+                innerDegree = getRootOfSumOfSquare(x, y, z)
                 degree = np.rad2deg(np.arcsin(innerDegree))
                 if np.dot(self.offset, np.array([0, 1, 0])) > 0:
                     degree = 180 - degree
                 glPushMatrix()
                 glRotatef(degree, degreeVector[0], degreeVector[1], degreeVector[2])
-                glScalef(1, -offset, 1)
+                if downloadedBvhFile:
+                    glScalef(30, -offset, 30)
+                else:
+                    glScalef(1, -offset, 1)
                 drawCube()
                 glPopMatrix()
         elif self.parent:
@@ -146,7 +150,7 @@ class Joint:
 class Bvh:
     def __init__(self, filename, bvhPlainTexts):
         self.filename = filename
-        self.joints = {}
+        self.nodes = {}
         self.root = None
         self.frames = 0
         self.fps = 0
@@ -164,7 +168,7 @@ class Bvh:
             
     def parseHierPlainTexts(self, hierPlainTexts):
         linesOfHierPlainTexts = hierPlainTexts.split('\n')
-        stackOfJoints = []
+        stackOfNodes = []
         cidx = 0
         for line in linesOfHierPlainTexts:
             words = line.strip().split(" ")
@@ -173,45 +177,45 @@ class Bvh:
                 continue
             opcode = words[0].upper()
             if opcode == "ROOT":
-                nameOfJoint = words[1]
-                joint = Joint(nameOfJoint, None)
-                self.root = joint
-                self.joints[nameOfJoint] = joint
-                stackOfJoints.append(joint)
+                nameOfNode = words[1]
+                node = Node(nameOfNode, None)
+                self.root = node
+                self.nodes[nameOfNode] = node
+                stackOfNodes.append(node)
             elif opcode == "JOINT":
-                nameOfJoint = words[1]
-                if (len(stackOfJoints) == 0):
-                    raise Exception("Stack of joints is empty. (JOINT)")
-                parent = stackOfJoints[-1]
-                joint = Joint(nameOfJoint, parent)
-                self.joints[nameOfJoint] = joint
-                parent.appendChild(joint)
-                stackOfJoints.append(joint)
+                nameOfNode = words[1]
+                if (len(stackOfNodes) == 0):
+                    raise Exception("Stack of nodes is empty. (JOINT)")
+                parent = stackOfNodes[-1]
+                node = Node(nameOfNode, parent)
+                self.nodes[nameOfNode] = node
+                parent.appendChild(node)
+                stackOfNodes.append(node)
             elif opcode == "CHANNELS":
-                if (len(stackOfJoints) == 0):
-                    raise Exception("Stack of joints is empty. (CHANNELS)")
+                if (len(stackOfNodes) == 0):
+                    raise Exception("Stack of nodes is empty. (CHANNELS)")
                 for e in words[2:]:
-                    stackOfJoints[-1].indexOfChannel.append(cidx)
-                    stackOfJoints[-1].orderOfChannel.append(e)
+                    stackOfNodes[-1].indexOfChannel.append(cidx)
+                    stackOfNodes[-1].orderOfChannel.append(e)
                     cidx += 1
             elif opcode == "OFFSET":
-                if (len(stackOfJoints) == 0):
-                    raise Exception("Stack of joints is empty. (OFFSET)")
+                if (len(stackOfNodes) == 0):
+                    raise Exception("Stack of nodes is empty. (OFFSET)")
                 for i, e in enumerate(words[1:], start=1):
                     offset = float(e)
-                    stackOfJoints[-1].offset[i - 1] = offset
+                    stackOfNodes[-1].offset[i - 1] = offset
             elif opcode == "END":
-                if len(stackOfJoints) == 0:
-                    raise Exception("Stack of joints is empty. (END)")
-                nameOfLastJoint = f"End Of {stackOfJoints[-1].name}"
-                lastJoint = Joint(nameOfLastJoint, stackOfJoints[-1])
-                self.joints[nameOfLastJoint] = lastJoint
-                stackOfJoints[-1].appendChild(lastJoint)
-                stackOfJoints.append(lastJoint)
+                if len(stackOfNodes) == 0:
+                    raise Exception("Stack of nodes is empty. (END)")
+                nameOfLastNode = f"End Of {stackOfNodes[-1].name}"
+                lastNode = Node(nameOfLastNode, stackOfNodes[-1])
+                self.nodes[nameOfLastNode] = lastNode
+                stackOfNodes[-1].appendChild(lastNode)
+                stackOfNodes.append(lastNode)
             elif opcode == "}":
-                if len(stackOfJoints) == 0:
-                    raise Exception("Stack of joints is empty. (POP)")
-                stackOfJoints.pop()
+                if len(stackOfNodes) == 0:
+                    raise Exception("Stack of nodes is empty. (POP)")
+                stackOfNodes.pop()
    
     def parseMotionPlainTexts(self, motionPlainTexts):
         global motion
@@ -239,11 +243,15 @@ class Bvh:
 
     def drawTPose(self):
         glPushMatrix()
+        if downloadedBvhFile:
+            glScalef(.03, .03, .03)
         self.root.tPose()
         glPopMatrix()
         
     def drawAnimation(self):
         glPushMatrix()
+        if downloadedBvhFile:
+            glScalef(.03, .03, .03)
         self.root.animation(int((glfw.get_time() - timeOfPressSpace) * self.fps) % self.frames)
         glPopMatrix()
     
@@ -251,11 +259,11 @@ class Bvh:
         filename = f"File name : {self.filename}\n"
         numOfFrames = f"Number of frames : {self.frames}\n"
         fps = f"FPS : {self.fps}\n"
-        numOfJoints = f"Number of joints : {len(self.joints.keys())}\n"
-        listOfAllJoints = "List of all joint names :\n"
-        for name in self.joints.keys():
-            listOfAllJoints += f"\t{name}\n"
-        return filename + numOfFrames + fps + numOfJoints + listOfAllJoints
+        numOfNodes = f"Number of joints : {len(self.nodes.keys())}\n"
+        listOfAllNodes = "List of all joint names :\n"
+        for name in self.nodes.keys():
+            listOfAllNodes += f"\t{name}\n"
+        return filename + numOfFrames + fps + numOfNodes + listOfAllNodes
 
 ################################################
 #           CONVINIENT FUNCTIONS
@@ -283,6 +291,8 @@ def getUnit(num):
         return np.array([0, 0, 0])
     return num / denominator
 
+def getRootOfSumOfSquare(x, y, z):
+    return ((x*x) + (y*y) + (z*z)) ** 0.5
 
 ################################################
 #          EVENT CALLBACK FUNCTION
