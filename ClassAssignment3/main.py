@@ -112,9 +112,12 @@ class Node:
                 if downloadedBvhFile:
                     glScalef(30, -offset, 30)
                 else:
-                    glScalef(1, -offset, 1)
+                    glScalef(1, -offset, 1) 
                 if canDrawObj and objMode:
+                    glScalef(1.2, 1.3, 1.2)
                     objname = self.name.lower().replace(" ", "") + ".obj"
+                    if objname == "spine.obj":
+                        glScalef(0.5, 0.5, 0.5)
                     for idx, name in enumerate(objFileNames):
                         if (name == objname):
                             drawObjMesh(idx)
@@ -487,7 +490,9 @@ def drop_callback(window, paths):
         objFileNames = []
         currentObject = Bvh(filename, f.read())
         for name in currentObject.nodes.keys():
-            objFileNames.append(f"{name.lower().replace(' ', '')}.obj")
+            objName = name.lower().replace(' ', '')
+            if objName.find("endof") < 0:
+                objFileNames.append(f"{objName}.obj")
         print(currentObject)
         openObjFiles()
         nothing = False
