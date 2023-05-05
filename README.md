@@ -1,5 +1,5 @@
 # 2022_CSE4020_GRAPHICS
-2022 Computer Graphics, (Prof. Yoonsang Lee)
+2022 Computer Graphics
 
 ## ClassAssignment1
 
